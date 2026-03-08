@@ -20,8 +20,9 @@ public class InventoryState {
     @Column(name = "incident_id", nullable = false)
     private String incidentId;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String category;
+    private ItemCategory category;
 
     @Column(name = "item_name", nullable = false)
     private String itemName;
