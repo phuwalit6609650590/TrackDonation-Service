@@ -1,5 +1,6 @@
 package com.project.trackdonation.service.spec;
 
+import com.project.trackdonation.entity.ItemCategory;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.experimental.Accessors;
@@ -22,7 +23,7 @@ public class DonationServiceSpec {
     @Accessors(chain = true)
     @Data
     public static class DonationItem {
-        private String category;
+        private ItemCategory category;
         private String itemName;
         private Integer quantity;
     }
@@ -39,7 +40,7 @@ public class DonationServiceSpec {
     @Data
     public static class InventoryInfo {
         private String incidentId;
-        private String category;
+        private ItemCategory category;
         private String itemName;
         private Integer availableQty;
         private LocalDateTime updatedAt;

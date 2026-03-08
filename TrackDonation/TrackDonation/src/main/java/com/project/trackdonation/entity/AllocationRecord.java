@@ -23,8 +23,9 @@ public class AllocationRecord {
     @Column(name = "incident_id", nullable = false)
     private String incidentId;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "item_category", nullable = false)
-    private String itemCategory;
+    private ItemCategory itemCategory;
 
     @Column(name = "item_name", nullable = false)
     private String itemName;
