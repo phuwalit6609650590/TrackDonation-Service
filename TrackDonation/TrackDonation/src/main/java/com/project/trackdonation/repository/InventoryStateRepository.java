@@ -10,8 +10,7 @@ public interface InventoryStateRepository extends JpaRepository<InventoryState, 
     Optional<InventoryState> findByIncidentIdAndCategoryAndItemName(
             String incidentId,
             ItemCategory category,
-            String itemName
-    );
+            String itemName);
 
     List<InventoryState> findAllByIncidentId(String incidentId);
 }
