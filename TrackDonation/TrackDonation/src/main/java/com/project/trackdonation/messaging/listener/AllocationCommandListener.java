@@ -23,7 +23,7 @@ public class AllocationCommandListener {
     private final SqsTemplate sqsTemplate;
     private final NotificationService notificationService;
 
-    @SqsListener("donation.allocation.commands.v1")
+    @SqsListener("${app.aws.sqs.allocation-commands}")
     public void handleAllocationRequest(
             AllocationRequestMessage request,
             @Header("MessageId") String messageId) {
@@ -55,7 +55,7 @@ public class AllocationCommandListener {
             AllocationResultMessage resultMessage = resultBuilder.build();
 
             sqsTemplate.send(to -> to
-                    .queue("evac.allocation.results.v1")
+                    .queue("evac-allocation-results-v1")
                     .payload(resultMessage)
                     .header("correlationId", messageId));
             log.info("Result sent back to queue evac.allocation.results.v1 successfully\n");
@@ -76,7 +76,7 @@ public class AllocationCommandListener {
             }
 
         } catch (DataIntegrityViolationException e) {
-            
+
             log.warn("Idempotency conflict detected for Message ID {}. Assuming already processed. Error: {}",
                     messageId, e.getMessage());
         } catch (Exception e) {
