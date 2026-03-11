@@ -26,7 +26,7 @@ public class AllocationCommandListener {
     @SqsListener("${app.aws.sqs.allocation-commands}")
     public void handleAllocationRequest(
             AllocationRequestMessage request,
-            @Header("MessageId") String messageId) {
+            @Header("id") String messageId) {
 
         log.info("[SQS Listener] Received allocation request (MessageID: {})", messageId);
 
