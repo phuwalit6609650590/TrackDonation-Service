@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.trackdonation.entity.*;
 import com.project.trackdonation.messaging.dto.AllocationRequestMessage;
 import com.project.trackdonation.repository.AllocationRecordRepository;
+import com.project.trackdonation.client.IncidentApiClient;
 import com.project.trackdonation.repository.DonationReceiptRepository;
 import com.project.trackdonation.repository.InventoryStateRepository;
 import com.project.trackdonation.service.DonationService;
@@ -27,11 +28,15 @@ public class DonationServiceImp implements DonationService {
     private final DonationReceiptRepository receiptRepository;
     private final InventoryStateRepository inventoryRepository;
     private final AllocationRecordRepository allocationRepository;
-    private final ObjectMapper objectMapper; //Object เป็น JSON String
+    private final IncidentApiClient incidentApiClient;
+    private final ObjectMapper objectMapper; // Object เป็น JSON String
 
     @Override
     @Transactional
     public DonationServiceSpec.DonationReceiptInfo recordDonation(DonationServiceSpec.RecordDonationRequest req) {
+
+        // Verify Incident exists
+        incidentApiClient.verifyIncidentStatus(req.getIncidentId());
 
         String generatedDonationId = "DON-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         String itemsJson;
@@ -56,7 +61,8 @@ public class DonationServiceImp implements DonationService {
         for (DonationServiceSpec.DonationItem item : req.getItems()) {
 
             Optional<InventoryState> existingInventory = inventoryRepository
-                    .findByIncidentIdAndCategoryAndItemName(req.getIncidentId(), item.getCategory(), item.getItemName());
+                    .findByIncidentIdAndCategoryAndItemName(req.getIncidentId(), item.getCategory(),
+                            item.getItemName());
             if (existingInventory.isPresent()) {
                 InventoryState inventory = existingInventory.get();
                 inventory.setAvailableQty(inventory.getAvailableQty() + item.getQuantity());
@@ -84,6 +90,10 @@ public class DonationServiceImp implements DonationService {
 
     @Override
     public List<DonationServiceSpec.InventoryInfo> getInventoryByIncident(String incidentId) {
+
+        // Verify Incident exists
+        incidentApiClient.verifyIncidentStatus(incidentId);
+
         return inventoryRepository.findAllByIncidentId(incidentId).stream()
                 .map(this::toInventoryInfo)
                 .collect(Collectors.toList());
@@ -140,6 +150,5 @@ public class DonationServiceImp implements DonationService {
 
         return allocationRepository.save(record);
     }
-
 
 }

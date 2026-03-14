@@ -16,14 +16,12 @@ public class DonationController {
 
     private final DonationService donationService;
 
-
     @PostMapping
     public ResponseEntity<DonationServiceSpec.DonationReceiptInfo> recordDonation(
             @RequestBody DonationServiceSpec.RecordDonationRequest req) {
         DonationServiceSpec.DonationReceiptInfo receipt = donationService.recordDonation(req);
         return ResponseEntity.status(HttpStatus.CREATED).body(receipt);
     }
-
 
     @GetMapping("/inventory/{incidentId}")
     public ResponseEntity<List<DonationServiceSpec.InventoryInfo>> getInventoryByIncident(
