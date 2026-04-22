@@ -10,13 +10,13 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/donations")
+@RequestMapping("/api")
 @RequiredArgsConstructor
 public class DonationController {
 
     private final DonationService donationService;
 
-    @PostMapping
+    @PostMapping("/donations")
     public ResponseEntity<DonationServiceSpec.DonationReceiptInfo> recordDonation(
             @RequestBody DonationServiceSpec.RecordDonationRequest req) {
         DonationServiceSpec.DonationReceiptInfo receipt = donationService.recordDonation(req);
@@ -28,5 +28,13 @@ public class DonationController {
             @PathVariable String incidentId) {
         List<DonationServiceSpec.InventoryInfo> inventory = donationService.getInventoryByIncident(incidentId);
         return ResponseEntity.ok(inventory);
+    }
+
+    @GetMapping("/allocations")
+    public ResponseEntity<List<DonationServiceSpec.AllocationInfo>> getAllocations(
+            @RequestParam(required = false) String incidentId,
+            @RequestParam(required = false) String shelter_id) {
+        List<DonationServiceSpec.AllocationInfo> allocations = donationService.getAllocations(incidentId, shelter_id);
+        return ResponseEntity.ok(allocations);
     }
 }

@@ -45,4 +45,45 @@ public class DonationServiceSpec {
         private Integer availableQty;
         private LocalDateTime updatedAt;
     }
+
+    @Accessors(chain = true)
+    @Data
+    public static class AllocationInfo {
+        private String transactionId;
+        private String shelterId;
+        private ItemCategory itemCategory;
+        private Integer allocatedAmount;
+        private String status;
+    }
+
+    @Data
+    @NoArgsConstructor
+    public static class IncidentListResponse {
+        private Integer total;
+        private Integer limit;
+        private Integer offset;
+        private List<IncidentDto> items;
+    }
+
+    @Data
+    @NoArgsConstructor
+    public static class IncidentDto {
+        private String incident_id;
+        private String incident_type;
+        private String severity;
+        private String status;
+        private LocationDto location;
+        private String address_name;
+        private String incident_start;
+        private Integer report_count;
+        private Integer affected_count;
+        private String created_at;
+    }
+
+    @Data
+    @NoArgsConstructor
+    public static class LocationDto {
+        private String type;
+        private List<Double> coordinates;
+    }
 }

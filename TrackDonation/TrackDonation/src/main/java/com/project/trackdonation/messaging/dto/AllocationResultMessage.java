@@ -3,6 +3,7 @@ package com.project.trackdonation.messaging.dto;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Data;
+import java.util.List;
 
 @Data
 @Builder
@@ -10,12 +11,19 @@ import lombok.Data;
 public class AllocationResultMessage {
     private String incidentId;
     private String referenceReqId;
-    private String transactionId;
-    private String itemCategory;
-    private String itemName;
-    private Integer allocatedAmount;
-    private String status;
-    private ErrorDetails errorDetails;
+    private List<ItemResult> results;
+
+    @Data
+    @Builder
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class ItemResult {
+        private String itemCategory;
+        private String itemName;
+        private Integer allocatedAmount;
+        private String transactionId;
+        private String status;
+        private ErrorDetails errorDetails;
+    }
 
     @Data
     @Builder

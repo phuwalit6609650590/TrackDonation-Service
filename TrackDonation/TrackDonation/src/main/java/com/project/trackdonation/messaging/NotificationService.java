@@ -8,8 +8,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import com.project.trackdonation.messaging.dto.AllocationResultMessage;
+import com.project.trackdonation.messaging.dto.AllocationRequestMessage;
+import java.util.HashMap;
 import java.util.Map;
-
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -21,23 +23,25 @@ public class NotificationService {
     @Value("${app.aws.sns.notifications-topic}")
     private String notificationsTopic;
 
-    public void sendAllocationResult(String incidentId, String transactionId, String status, String message) {
+    public void publishResult(AllocationResultMessage resultMessage, AllocationRequestMessage request) {
         try {
-            Map<String, String> payload = Map.of(
-                    "incidentId", incidentId,
-                    "transactionId", transactionId,
-                    "status", status,
-                    "message", message);
+            String jsonPayload = objectMapper.writeValueAsString(resultMessage);
+            
+            Map<String, Object> headers = new HashMap<>();
+            if (request.getContactEmail() != null) {
+                headers.put("target_email", request.getContactEmail());
+            }
+            if (request.getRequestingUnit() != null) {
+                headers.put("unit_name", request.getRequestingUnit());
+            }
 
-            String jsonPayload = objectMapper.writeValueAsString(payload);
-
-            snsTemplate.convertAndSend(notificationsTopic, jsonPayload);
-            log.info("Sent allocation result to SNS for transaction {}: {}", transactionId, status);
+            snsTemplate.convertAndSend(notificationsTopic, jsonPayload, headers);
+            log.info("Sent allocation result to SNS for request {} with attributes", resultMessage.getReferenceReqId());
 
         } catch (JsonProcessingException e) {
-            log.error("Failed to serialize SNS payload for transaction {}", transactionId, e);
+            log.error("Failed to serialize SNS payload for request {}", resultMessage.getReferenceReqId(), e);
         } catch (Exception e) {
-            log.error("Failed to send SNS message for transaction {}", transactionId, e);
+            log.error("Failed to send SNS message for request {}", resultMessage.getReferenceReqId(), e);
         }
     }
 }

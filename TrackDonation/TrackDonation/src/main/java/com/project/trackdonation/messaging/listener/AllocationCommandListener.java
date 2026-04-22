@@ -7,12 +7,13 @@ import com.project.trackdonation.messaging.dto.AllocationResultMessage;
 import com.project.trackdonation.messaging.NotificationService;
 import com.project.trackdonation.service.DonationService;
 import io.awspring.cloud.sqs.annotation.SqsListener;
-import io.awspring.cloud.sqs.operations.SqsTemplate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
+import java.util.List;
+import java.util.ArrayList;
 
 @Slf4j
 @Component
@@ -20,7 +21,6 @@ import org.springframework.stereotype.Component;
 public class AllocationCommandListener {
 
     private final DonationService donationService;
-    private final SqsTemplate sqsTemplate;
     private final NotificationService notificationService;
 
     @SqsListener("${app.aws.sqs.allocation-commands}")
@@ -31,49 +31,41 @@ public class AllocationCommandListener {
         log.info("[SQS Listener] Received allocation request (MessageID: {})", messageId);
 
         try {
-            AllocationRecord record = donationService.allocateItem(request, messageId);
+            List<AllocationRecord> records = donationService.allocateItems(request, messageId);
 
-            AllocationResultMessage.AllocationResultMessageBuilder resultBuilder = AllocationResultMessage.builder()
-                    .referenceReqId(record.getReferenceReqId())
-                    .status(record.getStatus().name());
+            List<AllocationResultMessage.ItemResult> itemResults = new ArrayList<>();
 
-            if (record.getStatus() == AllocationStatus.SUCCESS) {
-                resultBuilder.incidentId(record.getIncidentId())
-                        .transactionId(record.getTransactionId())
-                        .itemCategory(record.getItemCategory().name())
+            for (AllocationRecord record : records) {
+                AllocationResultMessage.ItemResult.ItemResultBuilder itemResultBuilder = AllocationResultMessage.ItemResult
+                        .builder()
+                        .itemCategory(record.getItemCategory() != null ? record.getItemCategory().name() : null)
                         .itemName(record.getItemName())
-                        .allocatedAmount(record.getAllocatedAmount());
-                log.info("Allocation successful! (Transaction: {})", record.getTransactionId());
-            } else {
-                resultBuilder.errorDetails(AllocationResultMessage.ErrorDetails.builder()
-                        .errorCode("OUT_OF_STOCK")
-                        .errorMessage("The requested item '" + request.getItemName() + "' has insufficient inventory.")
-                        .build());
-                log.warn("Allocation rejected! (Reason: Insufficient inventory)");
+                        .status(record.getStatus().name());
+
+                if (record.getStatus() == AllocationStatus.SUCCESS) {
+                    itemResultBuilder
+                            .transactionId(record.getTransactionId())
+                            .allocatedAmount(record.getAllocatedAmount());
+                    log.info("Allocation successful for item: {} (Transaction: {})", record.getItemName(),
+                            record.getTransactionId());
+                } else {
+                    itemResultBuilder.errorDetails(AllocationResultMessage.ErrorDetails.builder()
+                            .errorCode("ALLOCATION_FAILED")
+                            .errorMessage("Failed to allocate item '" + record.getItemName()
+                                    + "'. It may be out of stock, frozen, or shelter is invalid.")
+                            .build());
+                    log.warn("Allocation rejected for item: {}", record.getItemName());
+                }
+                itemResults.add(itemResultBuilder.build());
             }
 
-            AllocationResultMessage resultMessage = resultBuilder.build();
+            AllocationResultMessage resultMessage = AllocationResultMessage.builder()
+                    .incidentId(request.getIncidentId())
+                    .referenceReqId(request.getReferenceReqId())
+                    .results(itemResults)
+                    .build();
 
-            sqsTemplate.send(to -> to
-                    .queue("evac-allocation-results-v1")
-                    .payload(resultMessage)
-                    .header("correlationId", messageId));
-            log.info("Result sent back to queue evac.allocation.results.v1 successfully\n");
-
-            // --- SNS NOTIFICATION ---
-            if (record.getStatus() == AllocationStatus.SUCCESS) {
-                notificationService.sendAllocationResult(
-                        record.getIncidentId(),
-                        record.getTransactionId(),
-                        "SUCCESS",
-                        "Successfully allocated " + record.getAllocatedAmount() + " of " + record.getItemName());
-            } else {
-                notificationService.sendAllocationResult(
-                        record.getIncidentId(),
-                        record.getTransactionId(),
-                        "FAILED",
-                        "Failed to allocate " + request.getItemName() + " (Insufficient or Out of Stock)");
-            }
+            notificationService.publishResult(resultMessage, request);
 
         } catch (DataIntegrityViolationException e) {
 

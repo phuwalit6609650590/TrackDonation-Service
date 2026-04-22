@@ -8,5 +8,6 @@ import java.util.List;
 public interface DonationService {
     DonationServiceSpec.DonationReceiptInfo recordDonation(DonationServiceSpec.RecordDonationRequest req);
     List<DonationServiceSpec.InventoryInfo> getInventoryByIncident(String incidentId);
-    AllocationRecord allocateItem(AllocationRequestMessage request, String messageId);
+    List<AllocationRecord> allocateItems(AllocationRequestMessage request, String messageId);
+    List<DonationServiceSpec.AllocationInfo> getAllocations(String incidentId, String shelterId);
 }

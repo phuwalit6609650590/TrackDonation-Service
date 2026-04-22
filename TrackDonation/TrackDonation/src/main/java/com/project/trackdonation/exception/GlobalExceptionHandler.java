@@ -30,9 +30,9 @@ public class GlobalExceptionHandler {
         Map<String, Object> errorBody = new HashMap<>();
         errorBody.put("timestamp", LocalDateTime.now());
         errorBody.put("status", HttpStatus.SERVICE_UNAVAILABLE.value());
-        errorBody.put("errorCode", "ERR_INCIDENT_SERVICE_DOWN");
+        errorBody.put("errorCode", "ERR_INCIDENT_SERVICE_UNAVAILABLE");
         errorBody.put("message", ex.getMessage());
-        errorBody.put("suggestion", "Central incident service is temporarily down. Please try again later.");
+        errorBody.put("suggestion", "Please try again later.");
 
         return new ResponseEntity<>(errorBody, HttpStatus.SERVICE_UNAVAILABLE);
     }

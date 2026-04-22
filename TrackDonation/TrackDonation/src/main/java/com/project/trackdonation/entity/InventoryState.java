@@ -10,7 +10,9 @@ import java.time.LocalDateTime;
 @Entity
 @NoArgsConstructor
 @Accessors(chain = true)
-@Table(name = "inventory_states")
+@Table(name = "inventory_states", uniqueConstraints = {
+        @UniqueConstraint(columnNames = {"incident_id", "category", "item_name"})
+})
 public class InventoryState {
 
     @Id

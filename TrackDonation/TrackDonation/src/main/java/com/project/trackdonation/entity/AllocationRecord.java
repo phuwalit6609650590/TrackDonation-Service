@@ -43,6 +43,12 @@ public class AllocationRecord {
     @Column(nullable = false)
     private AllocationStatus status;
 
+    @Column(name = "shelter_id")
+    private String shelterId;
+
+    @Column(name = "message_id", unique = true)
+    private String messageId;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 }
