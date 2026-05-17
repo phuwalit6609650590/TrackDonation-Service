@@ -7,7 +7,18 @@ import java.util.List;
 import java.util.Optional;
 
 public interface InventoryStateRepository extends JpaRepository<InventoryState, String> {
-    Optional<InventoryState> findByIncidentIdAndCategoryAndItemName(
+    Optional<InventoryState> findByWarehouseIdAndIncidentIdAndCategoryAndItemName(
+            String warehouseId,
+            String incidentId,
+            ItemCategory category,
+            String itemName);
+
+    List<InventoryState> findAllByIncidentIdAndCategoryAndItemName(
+            String incidentId,
+            ItemCategory category,
+            String itemName);
+
+    Optional<InventoryState> findFirstByIncidentIdAndCategoryAndItemName(
             String incidentId,
             ItemCategory category,
             String itemName);

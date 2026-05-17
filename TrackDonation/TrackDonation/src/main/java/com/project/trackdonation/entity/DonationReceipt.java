@@ -23,8 +23,8 @@ public class DonationReceipt {
     @Column(name = "donor_name", nullable = false)
     private String donorName;
 
-    @Column(name = "storage_location", nullable = false)
-    private String storageLocation;
+    @Column(name = "warehouse_id", nullable = true)
+    private String warehouseId;
 
     @Column(columnDefinition = "TEXT", nullable = false)
     private String items;

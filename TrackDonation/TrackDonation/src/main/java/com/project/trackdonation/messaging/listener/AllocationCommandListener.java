@@ -6,13 +6,17 @@ import com.project.trackdonation.messaging.dto.AllocationRequestMessage;
 import com.project.trackdonation.messaging.dto.AllocationResultMessage;
 import com.project.trackdonation.messaging.NotificationService;
 import com.project.trackdonation.service.DonationService;
+import com.project.trackdonation.service.DispatchOutboxService;
+import com.project.trackdonation.repository.AllocationRecordRepository;
+import com.project.trackdonation.messaging.TimelineEventPublisher;
 import io.awspring.cloud.sqs.annotation.SqsListener;
-import io.awspring.cloud.sqs.operations.SqsTemplate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
+import java.util.List;
+import java.util.ArrayList;
 
 @Slf4j
 @Component
@@ -20,65 +24,117 @@ import org.springframework.stereotype.Component;
 public class AllocationCommandListener {
 
     private final DonationService donationService;
-    private final SqsTemplate sqsTemplate;
     private final NotificationService notificationService;
+    private final DispatchOutboxService dispatchOutboxService;
+    private final AllocationRecordRepository allocationRecordRepository;
+    private final TimelineEventPublisher timelineEventPublisher;
 
-    @SqsListener("donation.allocation.commands.v1")
+    @SqsListener("${app.aws.sqs.allocation-commands}")
     public void handleAllocationRequest(
             AllocationRequestMessage request,
-            @Header("MessageId") String messageId) {
+            @Header("id") String messageId) {
 
-        log.info("[SQS Listener] Received allocation request (MessageID: {})", messageId);
+        log.info("[Allocation Flow] รับคำขอเบิกสิ่งของแล้ว (MessageID: {}, Incident: {})", messageId, request.getIncidentId());
+        
+        long existingQueueCount = 0;
+        if (Boolean.TRUE.equals(request.getIsSelfPickup())) {
+            log.info("[Allocation Flow] รูปแบบการรับของ: มารับของเอง (Self Pickup)");
+        } else {
+            log.info("[Allocation Flow] รูปแบบการรับของ: ขอรถขนส่ง (Request Transport)");
+            existingQueueCount = allocationRecordRepository.countByStatus(AllocationStatus.WAITING_FOR_TRANSPORT);
+        }
 
         try {
-            AllocationRecord record = donationService.allocateItem(request, messageId);
+            List<AllocationRecord> records = donationService.allocateItems(request, messageId);
 
-            AllocationResultMessage.AllocationResultMessageBuilder resultBuilder = AllocationResultMessage.builder()
-                    .referenceReqId(record.getReferenceReqId())
-                    .status(record.getStatus().name());
+            List<AllocationResultMessage.ItemResult> itemResults = new ArrayList<>();
 
-            if (record.getStatus() == AllocationStatus.SUCCESS) {
-                resultBuilder.incidentId(record.getIncidentId())
-                        .transactionId(record.getTransactionId())
-                        .itemCategory(record.getItemCategory().name())
+            for (AllocationRecord record : records) {
+                AllocationResultMessage.ItemResult.ItemResultBuilder itemResultBuilder = AllocationResultMessage.ItemResult
+                        .builder()
+                        .itemCategory(record.getItemCategory() != null ? record.getItemCategory().name() : null)
                         .itemName(record.getItemName())
-                        .allocatedAmount(record.getAllocatedAmount());
-                log.info("Allocation successful! (Transaction: {})", record.getTransactionId());
-            } else {
-                resultBuilder.errorDetails(AllocationResultMessage.ErrorDetails.builder()
-                        .errorCode("OUT_OF_STOCK")
-                        .errorMessage("The requested item '" + request.getItemName() + "' has insufficient inventory.")
-                        .build());
-                log.warn("Allocation rejected! (Reason: Insufficient inventory)");
+                        .status(record.getStatus().name());
+
+                boolean isSuccess = record.getStatus() == AllocationStatus.WAITING_FOR_TRANSPORT
+                        || record.getStatus() == AllocationStatus.SELF_PICKUP;
+
+                if (isSuccess) {
+                    itemResultBuilder
+                            .transactionId(record.getTransactionId())
+                            .allocatedAmount(record.getAllocatedAmount());
+                    log.info("Allocation successful for item: {} status: {} (Transaction: {})",
+                            record.getItemName(), record.getStatus().name(), record.getTransactionId());
+                } else {
+                    itemResultBuilder.errorDetails(AllocationResultMessage.ErrorDetails.builder()
+                            .errorCode("ALLOCATION_FAILED")
+                            .errorMessage("Failed to allocate item '" + record.getItemName()
+                                    + "'. It may be out of stock or frozen.")
+                            .build());
+                    log.warn("[Allocation Flow] ปฏิเสธการเบิกของสำหรับไอเทม: {} (ของอาจหมดหรือโดนระงับ)", record.getItemName());
+                }
+                itemResults.add(itemResultBuilder.build());
             }
 
-            AllocationResultMessage resultMessage = resultBuilder.build();
+            AllocationResultMessage resultMessage = AllocationResultMessage.builder()
+                    .incidentId(request.getIncidentId())
+                    .referenceReqId(request.getReferenceReqId())
+                    .results(itemResults)
+                    .build();
 
-            sqsTemplate.send(to -> to
-                    .queue("evac.allocation.results.v1")
-                    .payload(resultMessage)
-                    .header("correlationId", messageId));
-            log.info("Result sent back to queue evac.allocation.results.v1 successfully\n");
+            notificationService.publishResult(resultMessage, request);
 
-            // --- SNS NOTIFICATION ---
-            if (record.getStatus() == AllocationStatus.SUCCESS) {
-                notificationService.sendAllocationResult(
-                        record.getIncidentId(),
-                        record.getTransactionId(),
-                        "SUCCESS",
-                        "Successfully allocated " + record.getAllocatedAmount() + " of " + record.getItemName());
+            // Fast-Track Delivery Logic
+            if (!Boolean.TRUE.equals(request.getIsSelfPickup())) {
+                boolean hasWaitingRecords = records.stream().anyMatch(r -> r.getStatus() == AllocationStatus.WAITING_FOR_TRANSPORT);
+                if (hasWaitingRecords) {
+                    if (existingQueueCount > 0) {
+                        log.info("[Allocation Flow] มีคิวรออยู่ก่อนหน้านี้แล้ว ระบบได้นำคำขอของคุณไปต่อคิว (คุณได้คิวที่ประมาณ {} นับจากที่มีอยู่)", existingQueueCount + 1);
+                    } else {
+                        log.info("[Allocation Flow] ไม่มีคิวรอรถในระบบ ส่งคำขอเรียกรถทันที (Fast-Track Delivery)");
+                        dispatchOutboxService.processPendingAllocations();
+                    }
+                }
             } else {
-                notificationService.sendAllocationResult(
-                        record.getIncidentId(),
-                        record.getTransactionId(),
-                        "FAILED",
-                        "Failed to allocate " + request.getItemName() + " (Insufficient or Out of Stock)");
+                // Self Pickup Timeline Logic
+                List<AllocationRecord> selfPickupRecords = records.stream()
+                        .filter(r -> r.getStatus() == AllocationStatus.SELF_PICKUP)
+                        .toList();
+                        
+                if (!selfPickupRecords.isEmpty()) {
+                    log.info("[Allocation Flow] อนุมัติคำขอแบบ Self Pickup เสร็จสิ้น กำลังส่งข้อมูลไปยัง Timeline");
+                    
+                    int totalItems = selfPickupRecords.stream().mapToInt(AllocationRecord::getAllocatedAmount).sum();
+                    
+                    java.util.Map<String, Object> details = new java.util.HashMap<>();
+                    details.put("totalItemsAllocated", totalItems);
+                    
+                    List<java.util.Map<String, Object>> allocatedList = selfPickupRecords.stream().map(r -> {
+                        java.util.Map<String, Object> item = new java.util.HashMap<>();
+                        item.put("itemCategory", r.getItemCategory() != null ? r.getItemCategory().name() : null);
+                        item.put("itemName", r.getItemName());
+                        item.put("allocatedAmount", r.getAllocatedAmount());
+                        item.put("transactionId", r.getTransactionId());
+                        item.put("status", "ALLOCATED");
+                        return item;
+                    }).toList();
+                    details.put("status", "ALLOCATED");
+                    details.put("allocatedList", allocatedList);
+                    
+                    timelineEventPublisher.publishAllocationSuccess(
+                            request.getIncidentId(),
+                            request.getReferenceReqId(),
+                            "อนุมัติการเบิกสิ่งของสำเร็จ (มารับด้วยตนเอง)",
+                            "จำนวนสิ่งของที่เบิกทั้งหมด " + totalItems + " ชิ้น กรุณามารับสิ่งของตามที่ระบุ",
+                            details);
+                }
             }
 
         } catch (DataIntegrityViolationException e) {
-            
             log.warn("Idempotency conflict detected for Message ID {}. Assuming already processed. Error: {}",
                     messageId, e.getMessage());
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            log.warn("[Allocation Flow] ธุรกิจล็อกจิกปฏิเสธคำขอ: {} (ไม่มีการส่ง Notification กลับ)", e.getMessage());
         } catch (Exception e) {
             log.error("Critical error occurred during allocation: {}", e.getMessage());
             throw e;
