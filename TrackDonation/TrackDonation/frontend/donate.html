@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Donate Supplies - TrackDonation</title>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        .item-row {
+            grid-template-columns: 1.5fr 2fr 1fr auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="glass-card">
+            <h2>Donate Supplies (บริจาคสิ่งของ)</h2>
+            <p class="mb-4">Register your donation for an active disaster relief incident.</p>
+
+            <form id="donateForm">
+                <div class="form-group">
+                    <label>Donor Name (ชื่อผู้บริจาค / องค์กร)</label>
+                    <input type="text" id="donorName" class="form-control" required placeholder="เช่น สภากาชาด">
+                </div>
+
+                <div class="form-group flex gap-4" style="flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 240px;">
+                        <label>Incident ID (รหัสเหตุการณ์)</label>
+                        <select id="incidentDropdown" class="form-control">
+                            <option value="">-- Select Incident --</option>
+                        </select>
+                        <small class="text-muted mt-2" style="display:block;">Or enter a custom Incident ID below (กรอกรหัสเองถ้าไม่อยู่ในรายการ):</small>
+                        <input type="text" id="manualIncidentId" class="form-control mt-2" placeholder="เช่น INC_FLOOD_001">
+                    </div>
+
+                    <div style="flex: 1; min-width: 240px;">
+                        <label>Destination Warehouse (โกดังปลายทาง)</label>
+                        <select id="warehouseDropdown" class="form-control">
+                            <option value="">-- Select Warehouse --</option>
+                        </select>
+                        <small class="text-muted mt-2" id="warehouseHelperText" style="display:block;"></small>
+                    </div>
+                </div>
+
+                <h3 class="mt-4">Donation Items (รายการสิ่งของ)</h3>
+                <p class="text-muted mb-4" style="font-size: 0.875rem;">Add all items you wish to donate in this request.</p>
+
+                <div id="itemsContainer">
+                    <div class="item-row">
+                        <select class="form-control item-category" required>
+                            <option value="">-- Category --</option>
+                            <option value="WATER"> WATER (น้ำ)</option>
+                            <option value="FOOD"> FOOD (อาหาร)</option>
+                            <option value="MEDICINE"> MEDICINE (ยา)</option>
+                            <option value="UTILITY"> UTILITY (อุปกรณ์)</option>
+                            <option value="OTHER"> OTHER (อื่นๆ)</option>
+                        </select>
+                        <input type="text" class="form-control item-name" placeholder="เช่น มาม่า, น้ำเปล่า" required>
+                        <input type="number" class="form-control item-qty" placeholder="เช่น 100" min="1" required>
+                        <button type="button" class="btn btn-danger btn-remove-item" style="visibility:hidden;">✕</button>
+                    </div>
+                </div>
+
+                <button type="button" id="btnAddItem" class="btn mt-2" style="background: white; border: 1px solid var(--secondary); color: var(--secondary);">+ Add Item (เพิ่มรายการ)</button>
+
+                <hr style="border-color: var(--surface-border); margin: 2rem 0;">
+
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Submit Donation (ยืนยันการบริจาค)</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="js/main.js"></script>
+    <script>
+        const ITEM_CATEGORY_OPTIONS = `
+            <option value="">-- Category --</option>
+            <option value="WATER"> WATER (น้ำ)</option>
+            <option value="FOOD"> FOOD (อาหาร)</option>
+            <option value="MEDICINE"> MEDICINE (ยา)</option>
+            <option value="UTILITY"> UTILITY (อุปกรณ์)</option>
+            <option value="OTHER"> OTHER (อื่นๆ)</option>
+        `;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const incidents = await API.getIncidents();
+                const dropdown = document.getElementById('incidentDropdown');
+                const validStatuses = ['PENDING_ASSIGNMENT', 'VERIFIED', 'IN_PROGRESS'];
+                incidents.filter(inc => validStatuses.includes(inc.status)).forEach(inc => {
+                    const opt = document.createElement('option');
+                    opt.value = inc.incidentId;
+                    opt.innerText = `${inc.incidentId} (${inc.status})`;
+                    dropdown.appendChild(opt);
+                });
+            } catch (err) {
+                console.error(err);
+            }
+        });
+
+        const incidentDropdown = document.getElementById('incidentDropdown');
+        const manualIncidentInput = document.getElementById('manualIncidentId');
+        const warehouseDropdown = document.getElementById('warehouseDropdown');
+        const warehouseHelperText = document.getElementById('warehouseHelperText');
+
+        async function updateWarehouses() {
+            const isManual = manualIncidentInput.value.trim().length > 0;
+            if (isManual) {
+                warehouseDropdown.disabled = true;
+                warehouseDropdown.innerHTML = '<option value="">-- Not Required for Custom Incident --</option>';
+                warehouseHelperText.innerText = '';
+                incidentDropdown.value = '';
+            } else {
+                warehouseDropdown.disabled = false;
+                const incidentId = incidentDropdown.value;
+                if (!incidentId) {
+                    warehouseDropdown.innerHTML = '<option value="">-- Select Incident First --</option>';
+                    return;
+                }
+                warehouseDropdown.innerHTML = '<option value="">Loading...</option>';
+                try {
+                    const whs = await API.getWarehouses(incidentId);
+                    warehouseDropdown.innerHTML = '<option value="">-- Select Warehouse --</option>';
+                    whs.forEach(w => {
+                        const opt = document.createElement('option');
+                        opt.value = w.warehouseId;
+                        opt.innerText = `${w.name} (${w.warehouseId})`;
+                        warehouseDropdown.appendChild(opt);
+                    });
+                    warehouseHelperText.innerText = `${whs.length} warehouse(s) found for this incident.`;
+                } catch (e) {
+                    warehouseDropdown.innerHTML = '<option value="">-- Error loading --</option>';
+                }
+            }
+        }
+
+        incidentDropdown.addEventListener('change', () => { manualIncidentInput.value = ''; updateWarehouses(); });
+        manualIncidentInput.addEventListener('input', () => { if (manualIncidentInput.value.trim()) incidentDropdown.value = ''; updateWarehouses(); });
+
+        // Dynamic Items
+        document.getElementById('btnAddItem').addEventListener('click', () => {
+            const container = document.getElementById('itemsContainer');
+            const row = document.createElement('div');
+            row.className = 'item-row';
+            row.innerHTML = `
+                <select class="form-control item-category" required>${ITEM_CATEGORY_OPTIONS}</select>
+                <input type="text" class="form-control item-name" placeholder="เช่น มาม่า, น้ำเปล่า" required>
+                <input type="number" class="form-control item-qty" placeholder="เช่น 50" min="1" required>
+                <button type="button" class="btn btn-danger btn-remove-item">✕</button>
+            `;
+            row.querySelector('.btn-remove-item').addEventListener('click', () => row.remove());
+            container.appendChild(row);
+        });
+
+        document.getElementById('donateForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const isManual = manualIncidentInput.value.trim().length > 0;
+            const incidentId = isManual ? manualIncidentInput.value.trim() : incidentDropdown.value;
+            const warehouseId = isManual ? null : warehouseDropdown.value || null;
+
+            if (!incidentId) { showToast('Please select or enter an Incident ID.', 'error'); return; }
+
+            const items = [];
+            let valid = true;
+            document.querySelectorAll('.item-row').forEach(row => {
+                const cat = row.querySelector('.item-category').value;
+                const name = row.querySelector('.item-name').value.trim();
+                const qty = parseInt(row.querySelector('.item-qty').value);
+                if (!cat || !name || !qty || qty < 1) { valid = false; return; }
+                items.push({ category: cat, itemName: name, quantity: qty });
+            });
+
+            if (!valid || items.length === 0) { showToast('Please fill all item fields correctly.', 'error'); return; }
+
+            const payload = {
+                donorName: document.getElementById('donorName').value.trim(),
+                incidentId,
+                warehouseId,
+                items,
+                idempotencyKey: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'req-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9)
+            };
+
+            try {
+                await API.donate(payload);
+                showToast('Donation submitted successfully! ', 'success');
+                e.target.reset();
+                warehouseDropdown.innerHTML = '<option value="">-- Select Warehouse --</option>';
+                document.getElementById('itemsContainer').innerHTML = `
+                    <div class="item-row">
+                        <select class="form-control item-category" required>${ITEM_CATEGORY_OPTIONS}</select>
+                        <input type="text" class="form-control item-name" placeholder="เช่น มาม่า, น้ำเปล่า" required>
+                        <input type="number" class="form-control item-qty" placeholder="เช่น 100" min="1" required>
+                        <button type="button" class="btn btn-danger btn-remove-item" style="visibility:hidden;">✕</button>
+                    </div>
+                `;
+            } catch (err) {
+                showToast(err.message || 'Failed to submit donation.', 'error');
+            }
+        });
+    </script>
+</body>
+</html>

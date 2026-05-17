@@ -20,6 +20,9 @@ public class AllocationRecord {
     @Column(name = "reference_req_id", nullable = false)
     private String referenceReqId;
 
+    @Column(name = "warehouse_id", nullable = true)
+    private String warehouseId;
+
     @Column(name = "incident_id", nullable = false)
     private String incidentId;
 
@@ -43,11 +46,21 @@ public class AllocationRecord {
     @Column(nullable = false)
     private AllocationStatus status;
 
-    @Column(name = "shelter_id")
-    private String shelterId;
+
+    @Column(name = "destination_lat")
+    private Double destinationLat;
+
+    @Column(name = "destination_long")
+    private Double destinationLong;
 
     @Column(name = "message_id", unique = true)
     private String messageId;
+
+    @Column(name = "retry_count", nullable = false)
+    private Integer retryCount = 0;
+
+    @Column(name = "next_retry_at", nullable = false)
+    private LocalDateTime nextRetryAt = LocalDateTime.now();
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

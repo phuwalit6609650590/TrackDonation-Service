@@ -11,13 +11,16 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @Accessors(chain = true)
 @Table(name = "inventory_states", uniqueConstraints = {
-        @UniqueConstraint(columnNames = {"incident_id", "category", "item_name"})
+        @UniqueConstraint(columnNames = {"warehouse_id", "incident_id", "category", "item_name"})
 })
 public class InventoryState {
 
     @Id
     @Column(name = "inventory_id", length = 50)
     private String inventoryId;
+
+    @Column(name = "warehouse_id", nullable = true)
+    private String warehouseId;
 
     @Column(name = "incident_id", nullable = false)
     private String incidentId;

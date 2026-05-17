@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Request History - TrackDonation</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="glass-card mb-4">
+            <h2>Request History (ประวัติการขอเบิก)</h2>
+            <p class="mb-4">Search by your unit name or email to view your requests. Leave blank to see all.</p>
+
+            <form id="searchForm" class="flex gap-4" style="align-items: center; flex-wrap: wrap;">
+                <select id="incidentFilter" class="form-control" style="max-width: 250px;">
+                    <option value="">All Incidents (ทั้งหมด)</option>
+                </select>
+                <input type="text" id="searchInput" class="form-control" placeholder="เช่น หน่วยกู้ภัย หรือ officer@example.com" style="flex: 1; min-width: 200px;">
+                <button type="submit" class="btn btn-primary">Search (ค้นหา)</button>
+                <button type="button" id="btnReset" class="btn" style="background: rgba(255,255,255,0.1); color: white;">Show All (ดูทั้งหมด)</button>
+            </form>
+        </div>
+
+        <div class="glass-card" id="resultsSection">
+            <div class="flex justify-between" style="align-items: center; margin-bottom: 1rem;">
+                <h3>Results (ผลลัพธ์)</h3>
+                <span id="pageInfo" class="text-muted" style="font-size: 0.875rem;"></span>
+            </div>
+
+            <div id="historyList">
+                <p class="text-center text-muted">Enter a search query above to begin.</p>
+            </div>
+
+            <div class="flex gap-4 mt-4" style="justify-content: center;">
+                <button id="btnPrev" class="btn" style="background: rgba(255,255,255,0.1); color: white;" disabled>← Previous</button>
+                <button id="btnNext" class="btn" style="background: rgba(255,255,255,0.1); color: white;" disabled>Next →</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/main.js"></script>
+    <script>
+        const STATUS_BADGE = {
+            WAITING_FOR_TRANSPORT: 'badge-warning',
+            SELF_PICKUP: 'badge-info',
+            DISPATCHED: 'badge-success',
+            DELIVERED: 'badge-success',
+            FAILED: 'badge-danger',
+            CANCELLED: 'badge-danger',
+        };
+        const CATEGORY_EMOJI = { WATER: '', FOOD: '', MEDICINE: '', UTILITY: '', OTHER: '' };
+
+        let currentPage = 0;
+        let currentQuery = '';
+        let currentIncidentId = '';
+
+        async function loadIncidentsForFilter() {
+            try {
+                const incidents = await API.getIncidents();
+                const filter = document.getElementById('incidentFilter');
+                incidents.forEach(inc => {
+                    const opt = document.createElement('option');
+                    opt.value = inc.incidentId;
+                    opt.textContent = `${inc.incidentId} (${inc.status})`;
+                    filter.appendChild(opt);
+                });
+            } catch (e) {
+                console.error("Failed to load incidents", e);
+            }
+        }
+
+        async function loadHistory(page = 0, query = '', incidentId = '') {
+            currentPage = page;
+            currentQuery = query;
+            currentIncidentId = incidentId;
+            document.getElementById('historyList').innerHTML = '<p class="text-center text-muted">Loading...</p>';
+            try {
+                const response = await API.getHistory(query, incidentId, page);
+                renderHistory(response);
+            } catch (err) {
+                document.getElementById('historyList').innerHTML = '<p class="text-center" style="color:var(--danger);">Failed to load history.</p>';
+            }
+        }
+
+        function renderHistory(pageData) {
+            const container = document.getElementById('historyList');
+            container.innerHTML = '';
+
+            document.getElementById('pageInfo').innerText = `Page ${pageData.number + 1} of ${pageData.totalPages || 1} (${pageData.totalElements} total)`;
+            document.getElementById('btnPrev').disabled = pageData.first;
+            document.getElementById('btnNext').disabled = pageData.last;
+
+            if (pageData.content.length === 0) {
+                container.innerHTML = '<p class="text-center text-muted">No requests found for this query.</p>';
+                return;
+            }
+
+            const grouped = {};
+            pageData.content.forEach(record => {
+                if (!grouped[record.referenceReqId]) {
+                    grouped[record.referenceReqId] = {
+                        referenceReqId: record.referenceReqId,
+                        status: record.status,
+                        queuePosition: record.queuePosition,
+                        incidentId: record.incidentId,
+                        warehouseId: record.warehouseId,
+                        createdAt: record.createdAt,
+                        items: []
+                    };
+                }
+                grouped[record.referenceReqId].items.push({
+                    itemName: record.itemName,
+                    itemCategory: record.itemCategory,
+                    allocatedAmount: record.allocatedAmount
+                });
+            });
+
+            Object.values(grouped).forEach(group => {
+                const isCancellable = ['WAITING_FOR_TRANSPORT', 'SELF_PICKUP'].includes(group.status);
+                const badgeClass = STATUS_BADGE[group.status] || 'badge-info';
+                const date = new Date(group.createdAt).toLocaleString('th-TH');
+
+                const div = document.createElement('div');
+                div.className = 'glass-card mb-4';
+                div.style.padding = '1.25rem 1.5rem';
+                div.innerHTML = `
+                    <div class="flex justify-between" style="align-items: flex-start; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
+                        <div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">Request ID (รหัสคำขอ)</div>
+                            <code style="color: #60A5FA; font-size: 0.9rem;">${group.referenceReqId}</code>
+                        </div>
+                        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.25rem;">
+                            <span class="badge ${badgeClass}">${group.status}</span>
+                            ${group.status === 'WAITING_FOR_TRANSPORT' && group.queuePosition
+                                ? `<span class="badge badge-warning" style="font-size:0.75rem;">Queue #${group.queuePosition}</span>`
+                                : ''}
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; font-size: 0.875rem;">
+                        <div>
+                            <span class="text-muted">Incident ID (รหัสเหตุการณ์)</span>
+                            <div style="font-weight: 600;">${group.incidentId}</div>
+                        </div>
+                        <div>
+                            <span class="text-muted">Warehouse (โกดัง)</span>
+                            <div style="font-weight: 600;">${group.warehouseId || '-'}</div>
+                        </div>
+                        <div>
+                            <span class="text-muted">Date (วันที่)</span>
+                            <div>${date}</div>
+                        </div>
+                    </div>
+
+                    <details style="background: rgba(0,0,0,0.2); border-radius: 8px; margin-bottom: 1rem;">
+                        <summary style="padding: 0.875rem 1rem; cursor: pointer; font-weight: 600; outline: none; list-style: none; display: flex; justify-content: space-between; align-items: center;">
+                            <span> Requested Items (รายการที่เบิก) <span class="badge badge-info" style="margin-left:0.5rem; font-size:0.7rem;">${group.items.length} รายการ</span></span>
+                            <span style="font-size: 0.8rem; color: var(--primary);">▼ คลิกดูรายละเอียด</span>
+                        </summary>
+                        <div style="padding: 0 1rem 1rem 1rem;">
+                            ${group.items.map(item => `
+                                <div style="padding: 0.5rem 0; border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.875rem; display: flex; align-items: center; justify-content: space-between;">
+                                    <div>
+                                        <strong>${item.itemName}</strong>
+                                        <span class="badge badge-info" style="margin-left: 0.5rem; font-size: 0.7rem;">${item.itemCategory}</span>
+                                    </div>
+                                    <span class="text-muted">× ${item.allocatedAmount} unit(s)</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </details>
+
+                    <div style="display: flex; gap: 0.5rem;">
+                        ${isCancellable
+                            ? `<button class="btn btn-danger btn-cancel" data-id="${group.referenceReqId}" style="font-size:0.875rem; padding: 0.5rem 1.25rem;">
+                                    ✕ Cancel Request (ยกเลิกคำขอ)
+                               </button>`
+                            : ''}
+                        ${group.status === 'SELF_PICKUP'
+                            ? `<button class="btn btn-success btn-dispatch" data-id="${group.referenceReqId}" style="font-size:0.875rem; padding: 0.5rem 1.25rem;">
+                                    ✓ Hand Over (ส่งมอบสิ่งของ)
+                               </button>`
+                            : ''}
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+
+            document.querySelectorAll('.btn-cancel').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    if (confirm('Cancel this request? Items will be returned to inventory.\n(ยืนยันการยกเลิก? ของจะถูกคืนสู่คลัง)')) {
+                        const reqId = e.target.dataset.id;
+                        try {
+                            await API.cancelAllocation(reqId);
+                            showToast('Request cancelled. Items refunded.', 'success');
+                            loadHistory(currentPage, currentQuery, currentIncidentId);
+                        } catch (err) {
+                            showToast(err.message || 'Failed to cancel.', 'error');
+                        }
+                    }
+                });
+            });
+
+            document.querySelectorAll('.btn-dispatch').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    if (confirm('Confirm hand over to the requesting unit?\n(ยืนยันการส่งมอบสิ่งของให้ทีมกู้ภัย?)')) {
+                        const reqId = e.target.dataset.id;
+                        try {
+                            await API.dispatchPickupAllocation(reqId);
+                            showToast('Items handed over successfully.', 'success');
+                            loadHistory(currentPage, currentQuery, currentIncidentId);
+                        } catch (err) {
+                            showToast(err.message || 'Failed to mark as dispatched.', 'error');
+                        }
+                    }
+                });
+            });
+        }
+
+        document.getElementById('searchForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const incidentId = document.getElementById('incidentFilter').value;
+            const query = document.getElementById('searchInput').value.trim();
+            loadHistory(0, query, incidentId);
+        });
+
+        document.getElementById('btnReset').addEventListener('click', () => {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('incidentFilter').value = '';
+            loadHistory(0, '', '');
+        });
+
+        document.getElementById('btnPrev').addEventListener('click', () => loadHistory(currentPage - 1, currentQuery, currentIncidentId));
+        document.getElementById('btnNext').addEventListener('click', () => loadHistory(currentPage + 1, currentQuery, currentIncidentId));
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadIncidentsForFilter();
+            loadHistory(0, '', '');
+        });
+    </script>
+</body>
+</html>

@@ -8,7 +8,12 @@ public class IncidentStatusChangedEvent {
     private String incidentId;
     private String previousStatus;
     private String currentStatus;
-    private String incidentType;
-    private String severity;
+    private LocationDTO location;
     private LocalDateTime updatedAt;
+
+    @Data
+    public static class LocationDTO {
+        private String type;
+        private double[] coordinates;
+    }
 }

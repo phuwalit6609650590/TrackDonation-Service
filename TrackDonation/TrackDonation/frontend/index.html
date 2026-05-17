@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - TrackDonation</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="glass-card mb-4">
+            <h2>Active Incidents (เหตุการณ์ที่กำลังดำเนินอยู่)</h2>
+            <p>Select an incident to view its available inventory.</p>
+            <div class="form-group" style="max-width: 400px; margin-top: 1rem;">
+                <select id="incidentDropdown" class="form-control">
+                    <option value="">-- กำลังโหลดเหตุการณ์... --</option>
+                </select>
+            </div>
+        </div>
+
+        <div id="inventorySection" class="glass-card hidden">
+            <div class="flex justify-between" style="align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+                <h3>Inventory (คลังของ): <span id="currentIncidentLabel" style="background: linear-gradient(135deg, #60A5FA, #34D399); -webkit-background-clip: text; -webkit-text-fill-color: transparent;"></span></h3>
+                <div class="flex gap-4" style="flex-wrap: wrap;">
+                    <select id="filterType" class="form-control" style="width: auto; min-width: 160px;">
+                        <option value="">All Categories (ทุกประเภท)</option>
+                        <option value="WATER">WATER (น้ำ)</option>
+                        <option value="FOOD">FOOD (อาหาร)</option>
+                        <option value="MEDICINE"> MEDICINE (ยา)</option>
+                        <option value="UTILITY">UTILITY (อุปกรณ์)</option>
+                        <option value="OTHER">OTHER (อื่นๆ)</option>
+                    </select>
+                    <input type="text" id="filterName" class="form-control" placeholder="เช่น ข้าวสาร, ผ้าห่ม" style="width: 180px;">
+                </div>
+            </div>
+            
+            <table class="data-table" id="inventoryTable">
+                <thead>
+                    <tr>
+                        <th>Category (ประเภท)</th>
+                        <th>Item Name (ชื่อของ)</th>
+                        <th>Available Qty (จำนวนคงเหลือ)</th>
+                        <th>Last Updated (อัปเดตล่าสุด)</th>
+                    </tr>
+                </thead>
+                <tbody id="inventoryBody">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="js/main.js"></script>
+    <script>
+        let currentInventory = [];
+
+        async function loadIncidents() {
+            try {
+                const incidents = await API.getIncidents();
+                const dropdown = document.getElementById('incidentDropdown');
+                dropdown.innerHTML = '<option value="">-- เลือกเหตุการณ์ (Select Incident) --</option>';
+
+                const validStatuses = ['VERIFIED', 'IN_PROGRESS', 'RESOLVED', 'DISPATCHED', 'PENDING_ASSIGNMENT'];
+                const filtered = incidents.filter(inc => validStatuses.includes(inc.status));
+
+                if (filtered.length === 0) {
+                    dropdown.innerHTML = '<option value="">-- ไม่มีเหตุการณ์ที่กำลังดำเนินอยู่ --</option>';
+                    dropdown.disabled = true;
+                    return;
+                }
+
+                dropdown.disabled = false;
+                filtered.forEach(inc => {
+                    const option = document.createElement('option');
+                    option.value = inc.incidentId;
+                    option.textContent = `${inc.incidentId} (${inc.status})`;
+                    dropdown.appendChild(option);
+                });
+
+                dropdown.addEventListener('change', (e) => {
+                    if(e.target.value) {
+                        loadInventory(e.target.value);
+                    } else {
+                        document.getElementById('inventorySection').classList.add('hidden');
+                    }
+                });
+            } catch (error) {
+                showToast('Failed to load incidents', 'error');
+            }
+        }
+
+        async function loadInventory(incidentId) {
+            document.getElementById('currentIncidentLabel').innerText = incidentId;
+            document.getElementById('inventorySection').classList.remove('hidden');
+            document.getElementById('inventoryBody').innerHTML = '<tr><td colspan="4" class="text-center text-muted">Loading...</td></tr>';
+
+            try {
+                currentInventory = await API.getInventory(incidentId);
+                renderInventory();
+            } catch (error) {
+                showToast('Failed to load inventory', 'error');
+            }
+        }
+
+        function renderInventory() {
+            const tbody = document.getElementById('inventoryBody');
+            tbody.innerHTML = '';
+
+            const filterType = document.getElementById('filterType').value;
+            const filterName = document.getElementById('filterName').value.toLowerCase();
+
+            const categoryEmoji = { WATER: '', FOOD: '', MEDICINE: '', UTILITY: '', OTHER: '' };
+
+            const filtered = currentInventory.filter(item =>
+                (!filterType || item.category === filterType) &&
+                (!filterName || item.itemName.toLowerCase().includes(filterName))
+            );
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No items found.</td></tr>';
+                return;
+            }
+
+            filtered.forEach(item => {
+                const tr = document.createElement('tr');
+                const emoji = categoryEmoji[item.category] || '';
+                tr.innerHTML = `
+                    <td><span class="badge badge-info">${emoji} ${item.category}</span></td>
+                    <td>${item.itemName}</td>
+                    <td><strong>${item.availableQty}</strong></td>
+                    <td style="color:var(--text-muted); font-size:0.875rem;">${new Date(item.updatedAt).toLocaleString()}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        document.getElementById('filterType').addEventListener('change', renderInventory);
+        document.getElementById('filterName').addEventListener('input', renderInventory);
+
+        document.addEventListener('DOMContentLoaded', loadIncidents);
+    </script>
+</body>
+</html>

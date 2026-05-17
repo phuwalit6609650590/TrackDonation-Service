@@ -15,7 +15,7 @@ public class DonationServiceSpec {
     public static class RecordDonationRequest {
         private String incidentId;
         private String donorName;
-        private String storageLocation;
+        private String warehouseId;
         private List<DonationItem> items;
         private String idempotencyKey;
     }
@@ -46,14 +46,29 @@ public class DonationServiceSpec {
         private LocalDateTime updatedAt;
     }
 
-    @Accessors(chain = true)
     @Data
+    @Accessors(chain = true)
     public static class AllocationInfo {
         private String transactionId;
-        private String shelterId;
         private ItemCategory itemCategory;
         private Integer allocatedAmount;
         private String status;
+    }
+
+    @Data
+    @Accessors(chain = true)
+    public static class AllocationHistoryInfo {
+        private String referenceReqId;
+        private String incidentId;
+        private ItemCategory itemCategory;
+        private String itemName;
+        private Integer allocatedAmount;
+        private String status;
+        private String destinationLat;
+        private String destinationLong;
+        private String warehouseId;
+        private java.time.LocalDateTime createdAt;
+        private Long queuePosition; // null if not in queue
     }
 
     @Data
@@ -69,8 +84,6 @@ public class DonationServiceSpec {
     @NoArgsConstructor
     public static class IncidentDto {
         private String incident_id;
-        private String incident_type;
-        private String severity;
         private String status;
         private LocationDto location;
         private String address_name;

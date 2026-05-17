@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Management - TrackDonation</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <style>
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal.active { display: flex; }
+        .modal-content {
+            background: var(--bg-color);
+            padding: 2rem;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 720px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .action-btns { display: flex; gap: 0.5rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="glass-card">
+            <div class="flex justify-between" style="align-items:center; flex-wrap:wrap; gap:1rem;">
+                <h2>Incident Management (จัดการเหตุการณ์)</h2>
+                <div style="display:flex; gap:1rem;">
+                    <select id="statusFilter" class="form-control" style="width: auto;">
+                        <option value="">All Statuses (ทั้งหมด)</option>
+                        <option value="PENDING_ASSIGNMENT" selected>PENDING_ASSIGNMENT</option>
+                        <option value="VERIFIED">VERIFIED</option>
+                        <option value="IN_PROGRESS">IN_PROGRESS</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="loadIncidents()">Refresh</button>
+                </div>
+            </div>
+            
+            <div class="table-responsive mt-4">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Incident ID</th>
+                            <th>Status</th>
+                            <th>Location (พิกัด)</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="incidentTableBody">
+                        <tr><td colspan="4" class="text-center text-muted">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div class="modal" id="editModal">
+        <div class="modal-content glass-card" style="box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);">
+            <h3>Edit Incident: <span id="editModalTitle" style="color:var(--primary);"></span></h3>
+            <form id="editForm">
+                <input type="hidden" id="editIncidentId">
+
+                <!-- Status only -->
+                <div class="form-group">
+                    <label>Status (สถานะ)</label>
+                    <select id="editStatus" class="form-control" required>
+                        <option value="PENDING_ASSIGNMENT">PENDING_ASSIGNMENT</option>
+                        <option value="REPORTED">REPORTED</option>
+                        <option value="VERIFIED">VERIFIED</option>
+                        <option value="IN_PROGRESS">IN_PROGRESS</option>
+                        <option value="RESOLVED">RESOLVED</option>
+                        <option value="CLOSED">CLOSED</option>
+                        <option value="REJECTED">REJECTED</option>
+                    </select>
+                </div>
+
+                <!-- Incident Location -->
+                <div class="form-group" style="border:1px solid var(--surface-border); border-radius:8px; padding:1rem;">
+                    <label style="font-weight:700; font-size:1rem; color:var(--primary); display:block; margin-bottom:0.75rem;">
+                        จุดเกิดเหตุ (Incident Location)
+                    </label>
+                    <div class="flex gap-4" style="margin-bottom: 0.75rem;">
+                        <div style="flex:1;">
+                            <label style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.25rem; display:block;">Latitude (ละติจูด)</label>
+                            <input type="number" id="editIncidentLatInput" class="form-control" placeholder="เช่น 13.756300" step="any">
+                        </div>
+                        <div style="flex:1;">
+                            <label style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.25rem; display:block;">Longitude (ลองจิจูด)</label>
+                            <input type="number" id="editIncidentLngInput" class="form-control" placeholder="เช่น 100.501800" step="any">
+                        </div>
+                        <div style="display:flex; align-items:flex-end;">
+                            <button type="button" class="btn btn-primary" style="white-space:nowrap;" onclick="jumpToCoords('incident')">ไปยังพิกัด</button>
+                        </div>
+                    </div>
+                    <div id="incidentMap" style="height: 250px; width: 100%; border-radius: 8px; border: 1px solid var(--surface-border); z-index: 1;"></div>
+                    <p class="text-muted" style="font-size:0.8rem; margin:0.5rem 0 0;">คลิกบนแผนที่เพื่อปักหมุด หรือพิมพ์พิกัดแล้วกด "ไปยังพิกัด"</p>
+                    <input type="hidden" id="editIncidentLat">
+                    <input type="hidden" id="editIncidentLng">
+                </div>
+
+                <!-- Warehouse Location -->
+                <div class="form-group" id="warehouseLocationGroup" style="border:1px solid var(--surface-border); border-radius:8px; padding:1rem; margin-top:1rem;">
+                    <label style="font-weight:700; font-size:1rem; color:#10b981; display:block; margin-bottom:0.75rem;">
+                        ตำแหน่งโกดัง (Warehouse Location)
+                        <span id="warehouseIdLabel" style="font-size:0.8rem; font-weight:400; color:var(--text-muted); margin-left:0.5rem;"></span>
+                    </label>
+                    <div class="flex gap-4" style="margin-bottom: 0.75rem;">
+                        <div style="flex:1;">
+                            <label style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.25rem; display:block;">Latitude (ละติจูด)</label>
+                            <input type="number" id="editWhLatInput" class="form-control" placeholder="เช่น 13.756300" step="any">
+                        </div>
+                        <div style="flex:1;">
+                            <label style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.25rem; display:block;">Longitude (ลองจิจูด)</label>
+                            <input type="number" id="editWhLngInput" class="form-control" placeholder="เช่น 100.501800" step="any">
+                        </div>
+                        <div style="display:flex; align-items:flex-end;">
+                            <button type="button" class="btn" style="white-space:nowrap; background:#10b981; color:white;" onclick="jumpToCoords('warehouse')">ไปยังพิกัด</button>
+                        </div>
+                    </div>
+                    <div id="warehouseMap" style="height: 250px; width: 100%; border-radius: 8px; border: 1px solid var(--surface-border); z-index: 1;"></div>
+                    <p class="text-muted" style="font-size:0.8rem; margin:0.5rem 0 0;">คลิกบนแผนที่เพื่อปักหมุด หรือพิมพ์พิกัดแล้วกด "ไปยังพิกัด"</p>
+                    <input type="hidden" id="editWhLat">
+                    <input type="hidden" id="editWhLng">
+                    <input type="hidden" id="editWhId">
+                </div>
+
+                <div id="noWarehouseNote" style="display:none; background:rgba(249,115,22,0.1); padding:1rem; border-radius:8px; margin-top:1rem;">
+                    <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; color:var(--primary); font-weight:600;">
+                        <input type="checkbox" id="createWarehouseCb"> สร้างโกดังใหม่สำหรับ Incident นี้ (Create Warehouse)
+                    </label>
+                    <p class="text-muted" style="margin-top:0.5rem; font-size:0.85rem; margin-bottom:0;">หากเลือก ระบบจะสร้างโกดังที่พิกัดเดียวกับจุดเกิดเหตุด้านบน</p>
+                </div>
+
+                <div class="flex gap-4 mt-4">
+                    <button type="button" class="btn" style="flex:1; background:rgba(255,255,255,0.1);" onclick="closeModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary" style="flex:1;">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="js/main.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script>
+        let allIncidents = [];
+        let existingWarehouses = [];
+
+        let incidentMap, incidentMarker;
+        let warehouseMap, warehouseMarker;
+
+        async function loadIncidents() {
+            try {
+                const tbody = document.getElementById('incidentTableBody');
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>';
+                allIncidents = await API.getIncidents();
+                existingWarehouses = await API.getWarehouses();
+                renderTable();
+            } catch (err) {
+                showToast('Failed to load incidents.', 'error');
+            }
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('incidentTableBody');
+            tbody.innerHTML = '';
+            const filter = document.getElementById('statusFilter').value;
+            const filtered = filter ? allIncidents.filter(i => i.status === filter) : allIncidents;
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No incidents found.</td></tr>';
+                return;
+            }
+
+            filtered.sort((a,b) => new Date(b.lastUpdatedAt || 0) - new Date(a.lastUpdatedAt || 0)).forEach(inc => {
+                const tr = document.createElement('tr');
+                let statusColor = 'badge-info';
+                if (inc.status === 'PENDING_ASSIGNMENT') statusColor = 'badge-warning';
+                if (inc.status === 'RESOLVED' || inc.status === 'VERIFIED') statusColor = 'badge-success';
+
+                const wh = existingWarehouses.find(w => w.incidentId === inc.incidentId);
+                const lat = inc.latitude ? inc.latitude.toFixed(4) : '-';
+                const lng = inc.longitude ? inc.longitude.toFixed(4) : '-';
+                const whLat = wh && wh.latitude ? wh.latitude.toFixed(4) : '-';
+                const whLng = wh && wh.longitude ? wh.longitude.toFixed(4) : '-';
+
+                tr.innerHTML = `
+                    <td><strong>${inc.incidentId}</strong></td>
+                    <td><span class="badge ${statusColor}">${inc.status}</span></td>
+                    <td>
+                        <div style="font-size:0.8rem;">จุดเกิดเหตุ: ${lat}, ${lng}</div>
+                        <div style="font-size:0.8rem; color:#10b981;">โกดัง: ${whLat}, ${whLng}</div>
+                    </td>
+                    <td class="action-btns">
+                        <button class="btn btn-primary" style="padding:0.25rem 0.75rem; font-size:0.85rem;" onclick="openEditModal('${inc.incidentId}')">Edit</button>
+                        <button class="btn btn-danger" style="padding:0.25rem 0.75rem; font-size:0.85rem;" onclick="deleteInc('${inc.incidentId}')">Delete</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function initMaps() {
+            const DEFAULT = [13.7563, 100.5018];
+            if (!incidentMap) {
+                incidentMap = L.map('incidentMap').setView(DEFAULT, 10);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(incidentMap);
+                incidentMap.on('click', e => setIncidentPin(e.latlng.lat, e.latlng.lng));
+            }
+            if (!warehouseMap) {
+                warehouseMap = L.map('warehouseMap').setView(DEFAULT, 10);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(warehouseMap);
+                warehouseMap.on('click', e => setWarehousePin(e.latlng.lat, e.latlng.lng));
+            }
+        }
+
+        function setIncidentPin(lat, lng) {
+            const latF = parseFloat(lat).toFixed(6), lngF = parseFloat(lng).toFixed(6);
+            document.getElementById('editIncidentLat').value = latF;
+            document.getElementById('editIncidentLng').value = lngF;
+            document.getElementById('editIncidentLatInput').value = latF;
+            document.getElementById('editIncidentLngInput').value = lngF;
+            if (incidentMarker) { incidentMarker.setLatLng([lat, lng]); }
+            else { incidentMarker = L.marker([lat, lng]).addTo(incidentMap); }
+            incidentMap.panTo([lat, lng]);
+        }
+
+        function setWarehousePin(lat, lng) {
+            const latF = parseFloat(lat).toFixed(6), lngF = parseFloat(lng).toFixed(6);
+            document.getElementById('editWhLat').value = latF;
+            document.getElementById('editWhLng').value = lngF;
+            document.getElementById('editWhLatInput').value = latF;
+            document.getElementById('editWhLngInput').value = lngF;
+            if (warehouseMarker) {
+                warehouseMarker.setLatLng([lat, lng]);
+            } else {
+                warehouseMarker = L.marker([lat, lng], {
+                    icon: L.icon({
+                        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+                        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                        iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+                    })
+                }).addTo(warehouseMap);
+            }
+            warehouseMap.panTo([lat, lng]);
+        }
+
+        function jumpToCoords(type) {
+            if (type === 'incident') {
+                const lat = parseFloat(document.getElementById('editIncidentLatInput').value);
+                const lng = parseFloat(document.getElementById('editIncidentLngInput').value);
+                if (isNaN(lat) || isNaN(lng)) { showToast('กรุณากรอกพิกัดจุดเกิดเหตุให้ถูกต้อง', 'warning'); return; }
+                if (lat < -90 || lat > 90 || lng < -180 || lng > 180) { showToast('พิกัดอยู่นอกช่วงที่ถูกต้อง', 'warning'); return; }
+                setIncidentPin(lat, lng); incidentMap.setView([lat, lng], 13);
+            } else {
+                const lat = parseFloat(document.getElementById('editWhLatInput').value);
+                const lng = parseFloat(document.getElementById('editWhLngInput').value);
+                if (isNaN(lat) || isNaN(lng)) { showToast('กรุณากรอกพิกัดโกดังให้ถูกต้อง', 'warning'); return; }
+                if (lat < -90 || lat > 90 || lng < -180 || lng > 180) { showToast('พิกัดอยู่นอกช่วงที่ถูกต้อง', 'warning'); return; }
+                setWarehousePin(lat, lng); warehouseMap.setView([lat, lng], 13);
+            }
+        }
+
+        function openEditModal(id) {
+            const inc = allIncidents.find(i => i.incidentId === id);
+            if (!inc) return;
+
+            document.getElementById('editIncidentId').value = inc.incidentId;
+            document.getElementById('editModalTitle').textContent = inc.incidentId;
+            document.getElementById('editStatus').value = inc.status;
+
+            if (incidentMarker) { incidentMarker.remove(); incidentMarker = null; }
+            if (warehouseMarker) { warehouseMarker.remove(); warehouseMarker = null; }
+
+            document.getElementById('editModal').classList.add('active');
+
+            setTimeout(() => {
+                initMaps();
+                incidentMap.invalidateSize();
+                warehouseMap.invalidateSize();
+
+                const incLat = inc.latitude || 13.7563;
+                const incLng = inc.longitude || 100.5018;
+                setIncidentPin(incLat, incLng);
+                incidentMap.setView([incLat, incLng], 12);
+
+                const wh = existingWarehouses.find(w => w.incidentId === inc.incidentId);
+                const whGroup = document.getElementById('warehouseLocationGroup');
+                const noWhNote = document.getElementById('noWarehouseNote');
+
+                if (wh) {
+                    whGroup.style.display = 'block';
+                    noWhNote.style.display = 'none';
+                    document.getElementById('editWhId').value = wh.warehouseId;
+                    document.getElementById('warehouseIdLabel').textContent = `(${wh.warehouseId})`;
+                    const whLat = wh.latitude || incLat;
+                    const whLng = wh.longitude || incLng;
+                    setWarehousePin(whLat, whLng);
+                    warehouseMap.setView([whLat, whLng], 12);
+                } else {
+                    whGroup.style.display = 'none';
+                    noWhNote.style.display = 'block';
+                    document.getElementById('createWarehouseCb').checked = (inc.status === 'PENDING_ASSIGNMENT');
+                    document.getElementById('editWhId').value = '';
+                }
+            }, 150);
+        }
+
+        function closeModal() {
+            document.getElementById('editModal').classList.remove('active');
+        }
+
+        async function deleteInc(id) {
+            if (!confirm(`Are you sure you want to delete Incident ${id}? This cannot be undone.`)) return;
+            try {
+                await API.deleteIncident(id);
+                showToast(`Deleted ${id} successfully`, 'success');
+                loadIncidents();
+            } catch (err) {
+                showToast(`Failed to delete ${id}`, 'error');
+            }
+        }
+
+        document.getElementById('editForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('editIncidentId').value;
+            const incPayload = {
+                status: document.getElementById('editStatus').value,
+                latitude: parseFloat(document.getElementById('editIncidentLat').value),
+                longitude: parseFloat(document.getElementById('editIncidentLng').value)
+            };
+
+            try {
+                await API.updateIncident(id, incPayload);
+                const whId = document.getElementById('editWhId').value;
+
+                if (whId) {
+                    const whPayload = {
+                        latitude: parseFloat(document.getElementById('editWhLat').value),
+                        longitude: parseFloat(document.getElementById('editWhLng').value)
+                    };
+                    await API.updateWarehouse(whId, whPayload);
+                    showToast('Updated Incident & Warehouse successfully!', 'success');
+                } else if (document.getElementById('createWarehouseCb').checked) {
+                    const whPayload = {
+                        warehouseId: 'WH-' + id + '-001',
+                        incidentId: id,
+                        name: 'main warehouse ' + id,
+                        latitude: incPayload.latitude,
+                        longitude: incPayload.longitude,
+                        isActive: true
+                    };
+                    await API.createWarehouse(whPayload);
+                    showToast('Updated Incident & Created Warehouse!', 'success');
+                } else {
+                    showToast('Updated Incident successfully!', 'success');
+                }
+
+                closeModal();
+                loadIncidents();
+            } catch (err) {
+                showToast('Failed to save changes', 'error');
+            }
+        });
+
+        document.getElementById('statusFilter').addEventListener('change', renderTable);
+        document.addEventListener('DOMContentLoaded', loadIncidents);
+    </script>
+</body>
+</html>

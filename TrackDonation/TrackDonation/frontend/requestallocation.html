@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Request Supplies - TrackDonation</title>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        .inventory-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.25rem;
+            background: rgba(244, 241, 238, 0.6);
+            border: 1px solid var(--surface-border);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+        .inventory-item .qty-input { width: 100px; }
+        .map-hint {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+        }
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+</head>
+<body>
+    <div class="container">
+        <div class="glass-card">
+            <h2>Request Supplies (ขอเบิกสิ่งของ)</h2>
+            <p class="mb-4">Submit a supply request for an active incident. All items must be available to proceed.</p>
+
+            <form id="requestForm">
+                <div class="form-group flex gap-4" style="flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 220px;">
+                        <label>Requesting Unit (หน่วยงานผู้ขอ)</label>
+                        <input type="text" id="requestingUnit" class="form-control" required placeholder="เช่น หน่วยกู้ภัยเขตดอนเมือง">
+                    </div>
+                    <div style="flex: 1; min-width: 220px;">
+                        <label>Contact Email (อีเมลผู้ประสานงาน)</label>
+                        <input type="email" id="contactEmail" class="form-control" required placeholder="e.g. officer@example.com">
+                    </div>
+                </div>
+
+                <div class="form-group flex gap-4" style="flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 220px;">
+                        <label>Incident (เหตุการณ์)</label>
+                        <select id="incidentDropdown" class="form-control" required>
+                            <option value="">-- Select Incident --</option>
+                        </select>
+                    </div>
+                    <div style="flex: 1; min-width: 220px;">
+                        <label>Source Warehouse (โกดังต้นทาง)</label>
+                        <select id="warehouseDropdown" class="form-control" required>
+                            <option value="">-- Select Incident First --</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Delivery Destination (ปลายทางจุดส่งของ)</label>
+                    <div id="map" style="height: 350px; width: 100%; border-radius: 8px; border: 1px solid var(--surface-border); margin-bottom: 0.5rem; z-index: 1;"></div>
+                    <span class="badge badge-warning" id="pinCoords">ยังไม่ได้ตั้งจุด — คลิกที่แผนที่</span>
+                    <p class="map-hint">Default location is the incident site. Move the pin to adjust your pickup point.</p>
+                    <input type="hidden" id="destLat">
+                    <input type="hidden" id="destLong">
+                </div>
+
+                <div class="form-group">
+                    <label>Delivery Method (วิธีรับของ)</label>
+                    <div class="flex gap-4" style="align-items: center; margin-top: 0.5rem;">
+                        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                            <input type="radio" name="deliveryMethod" value="transport" checked>  Request Transport (ให้ระบบจัดรถขนส่ง)
+                        </label>
+                        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                            <input type="radio" name="deliveryMethod" value="selfpickup">  Self Pickup (มารับด้วยตนเอง)
+                        </label>
+                    </div>
+                </div>
+
+                <h3 class="mt-4">Available Items (ของที่มีในคลัง)</h3>
+                <p class="text-muted mb-4" style="font-size: 0.875rem;">Enter quantity to request. Leave blank or 0 to skip. Cannot exceed available stock.</p>
+                <div id="inventoryList">
+                    <p class="text-center text-muted">Select an incident to load available items.</p>
+                </div>
+
+                <hr style="border-color: var(--surface-border); margin: 2rem 0;">
+                <button type="submit" class="btn btn-primary" style="width:100%;">Submit Request (ยืนยันการขอเบิก)</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="js/main.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script>
+        const CATEGORY_EMOJI = { WATER: '', FOOD: '', MEDICINE: '', UTILITY: '', OTHER: '' };
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const incidents = await API.getIncidents();
+                const dropdown = document.getElementById('incidentDropdown');
+                const validStatuses = ['VERIFIED', 'IN_PROGRESS', 'RESOLVED', 'DISPATCHED'];
+                incidents.filter(inc => validStatuses.includes(inc.status)).forEach(inc => {
+                    const opt = document.createElement('option');
+                    opt.value = inc.incidentId;
+                    opt.innerText = `${inc.incidentId} (${inc.status})`;
+                    opt.dataset.lat = inc.latitude;
+                    opt.dataset.long = inc.longitude;
+                    dropdown.appendChild(opt);
+                });
+            } catch (err) { console.error(err); }
+        });
+
+        const incidentDropdown = document.getElementById('incidentDropdown');
+        const warehouseDropdown = document.getElementById('warehouseDropdown');
+        const inventoryList = document.getElementById('inventoryList');
+
+        incidentDropdown.addEventListener('change', async () => {
+            const incidentId = incidentDropdown.value;
+            if (!incidentId) {
+                warehouseDropdown.innerHTML = '<option value="">-- Select Incident First --</option>';
+                inventoryList.innerHTML = '<p class="text-center text-muted">Select an incident to load available items.</p>';
+                return;
+            }
+            const selectedOpt = incidentDropdown.options[incidentDropdown.selectedIndex];
+            const lat = parseFloat(selectedOpt.dataset.lat) || 13.7563;
+            const lng = parseFloat(selectedOpt.dataset.long) || 100.5018;
+            setPin(lat, lng);
+
+            try {
+                const whs = await API.getWarehouses(incidentId);
+                warehouseDropdown.innerHTML = '<option value="">-- Select Warehouse --</option>';
+                whs.forEach(w => {
+                    const opt = document.createElement('option');
+                    opt.value = w.warehouseId;
+                    opt.innerText = `${w.name} (${w.warehouseId})`;
+                    warehouseDropdown.appendChild(opt);
+                });
+            } catch (e) { console.error(e); }
+
+            try {
+                const inventory = await API.getInventory(incidentId);
+                renderInventory(inventory);
+            } catch (e) {
+                inventoryList.innerHTML = '<p class="text-center text-muted">Failed to load inventory.</p>';
+            }
+        });
+
+        function renderInventory(items) {
+            const available = items.filter(i => i.availableQty > 0);
+            if (available.length === 0) {
+                inventoryList.innerHTML = '<p class="text-center text-muted">No items currently available in this incident.</p>';
+                return;
+            }
+            inventoryList.innerHTML = '';
+            available.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'inventory-item';
+                div.innerHTML = `
+                    <div>
+                        <strong>${item.itemName}</strong>
+                        <span class="badge badge-info" style="margin-left:0.5rem;">${item.category}</span>
+                        <div class="text-muted mt-2" style="font-size:0.85rem;">Available (คงเหลือ): <strong>${item.availableQty}</strong></div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:0.5rem;">
+                        <label style="color:var(--text-muted); font-size:0.85rem;">Qty (จำนวน):</label>
+                        <input type="number" class="form-control qty-input req-qty"
+                               data-category="${item.category}"
+                               data-name="${item.itemName}"
+                               data-max="${item.availableQty}"
+                               placeholder="0" min="0" max="${item.availableQty}">
+                    </div>
+                `;
+                inventoryList.appendChild(div);
+            });
+        }
+
+        // Map initialization
+        let map;
+        let marker;
+
+        function initMap() {
+            if (map) return;
+            map = L.map('map').setView([13.7563, 100.5018], 10);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+
+            map.on('click', function(e) {
+                setPin(e.latlng.lat, e.latlng.lng);
+            });
+        }
+
+        // Initialize map immediately
+        initMap();
+
+        function setPin(lat, lng) {
+            document.getElementById('destLat').value = lat.toFixed(6);
+            document.getElementById('destLong').value = lng.toFixed(6);
+            document.getElementById('pinCoords').innerText = ` Lat: ${lat.toFixed(6)}, Long: ${lng.toFixed(6)}`;
+            
+            if (marker) {
+                marker.setLatLng([lat, lng]);
+            } else {
+                marker = L.marker([lat, lng]).addTo(map);
+            }
+            map.panTo([lat, lng]);
+        }
+
+        document.getElementById('requestForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const incidentId = incidentDropdown.value;
+            const destLat = parseFloat(document.getElementById('destLat').value);
+            const destLong = parseFloat(document.getElementById('destLong').value);
+            const isSelfPickup = document.querySelector('input[name="deliveryMethod"]:checked').value === 'selfpickup';
+
+            if (!incidentId || !warehouseDropdown.value) { showToast('Please select Incident and Warehouse.', 'error'); return; }
+            if (isNaN(destLat) || isNaN(destLong)) { showToast('Please set a delivery location on the map.', 'error'); return; }
+
+            const items = [];
+            document.querySelectorAll('.req-qty').forEach(input => {
+                const qty = parseInt(input.value);
+                if (qty > 0) {
+                    if (qty > parseInt(input.dataset.max)) {
+                        showToast(`Quantity for "${input.dataset.name}" exceeds available stock!`, 'error');
+                        throw new Error('Validation failed');
+                    }
+                    items.push({ itemCategory: input.dataset.category, itemName: input.dataset.name, amountNeeded: qty });
+                }
+            });
+
+            if (items.length === 0) { showToast('Please request at least one item.', 'error'); return; }
+
+            const payload = {
+                incidentId,
+                warehouseId: warehouseDropdown.value,
+                requestingUnit: document.getElementById('requestingUnit').value.trim(),
+                contactEmail: document.getElementById('contactEmail').value.trim(),
+                destinationLat: destLat,
+                destinationLong: destLong,
+                isSelfPickup,
+                items
+            };
+
+            try {
+                const res = await API.requestAllocation(payload);
+                showToast('Request submitted! Tracking ID: ' + (res.referenceReqId || 'N/A'), 'success');
+                setTimeout(() => window.location.href = 'history.html', 2500);
+            } catch (err) {
+                showToast(err.message || 'Failed to submit request.', 'error');
+            }
+        });
+    </script>
+</body>
+</html>
